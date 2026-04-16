@@ -121,6 +121,59 @@ jobs:
           ./nextflow-lint-hook "test dir/my workflow.nf"
           rm -rf "test dir"
 
+  test-fail-on-warnings:
+    name: Test -fail-on-warnings Flag
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nextflow
+        uses: nf-core/setup-nextflow@v2
+        with:
+          version: latest
+
+      - name: Make hook executable
+        run: chmod +x nextflow-lint-hook
+
+      - name: Create test files
+        run: |
+          cat > clean.nf << 'EOF'
+          #!/usr/bin/env nextflow
+          nextflow.enable.dsl = 2
+
+          process TEST {
+              output: stdout
+              script: "echo 'test'"
+          }
+
+          workflow { TEST() }
+          EOF
+
+          cat > warns.nf << 'EOF'
+          #!/usr/bin/env nextflow
+          nextflow.enable.dsl = 2
+
+          workflow {
+              ch = Channel.from(1, 2, 3)
+              ch.view()
+          }
+          EOF
+
+      - name: Test -fail-on-warnings passes on clean file
+        run: ./nextflow-lint-hook -fail-on-warnings clean.nf
+
+      - name: Test -fail-on-warnings fails on file with warnings
+        run: |
+          if ./nextflow-lint-hook -fail-on-warnings warns.nf; then
+            echo "Should have failed with warnings"
+            exit 1
+          fi
+
+      - name: Test -fail-on-warnings is a no-op on older nextflow (no warnings key in JSON)
+        run: ./nextflow-lint-hook -fail-on-warnings warns.nf
+
   test-pre-commit:
     name: Test Pre-commit Integration
     runs-on: ubuntu-latest

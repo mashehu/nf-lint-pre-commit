@@ -13,6 +13,7 @@ A pre-commit hook for running `nextflow lint` on Nextflow pipeline files.
 
 - [Nextflow](https://www.nextflow.io/) (v25.04+) installed and available in your `PATH`
 - [pre-commit](https://pre-commit.com/) installed
+- [jq](https://jqlang.org/) installed (only required when using `-fail-on-warnings`)
 
 ## Setup
 
@@ -51,9 +52,18 @@ hooks:
 
   - id: nextflow-lint
     args: [-output, json]                # JSON output for CI
+
+  - id: nextflow-lint
+    args: [-fail-on-warnings]            # Treat warnings as errors (requires jq, Nextflow v26.01.1-edge+)
 ```
 
 > **Note:** Each example above is an alternative configuration — use only one `id: nextflow-lint` entry.
+
+### `-fail-on-warnings`
+
+A hook-level flag (not passed to `nextflow lint`) that exits with status 1 if any warnings are present. It forces JSON output internally to parse the `warnings` field introduced in Nextflow v26.01.1-edge. On older Nextflow versions the flag is silently ignored.
+
+Requires [`jq`](https://jqlang.org/) to be installed.
 
 ## Manual Execution
 

@@ -10,19 +10,29 @@ fi
 
 # Separate nextflow lint flags from file arguments.
 # pre-commit passes: [args...] [filenames...]
+# -fail-on-warnings is a hook-only flag: intercepted here, not forwarded to nextflow lint.
+# -output/-o is extracted separately so it can be overridden with json when -fail-on-warnings is set.
 # Flags that take a value: -output/-o, -exclude, -spaces
 args=()
 files=()
+output_format=""
+fail_on_warnings=false
+expect_output=false
 expect_value=false
 for arg in "$@"; do
-    if $expect_value; then
+    if $expect_output; then
+        output_format="$arg"
+        expect_output=false
+    elif $expect_value; then
         args+=("$arg")
         expect_value=false
+    elif [[ "$arg" == "-fail-on-warnings" ]]; then
+        fail_on_warnings=true
     elif [[ "$arg" == -* && ${#files[@]} -eq 0 ]]; then
-        args+=("$arg")
-        # These flags require a following value argument
         case "$arg" in
-            -output|-o|-exclude|-spaces) expect_value=true ;;
+            -output|-o) expect_output=true ;;
+            -exclude|-spaces) args+=("$arg"); expect_value=true ;;
+            *) args+=("$arg") ;;
         esac
     else
         files+=("$arg")
@@ -35,11 +45,35 @@ if [[ ${#files[@]} -eq 0 ]]; then
     exit 0
 fi
 
-# Run nextflow lint with flags followed by files
 # Use ${args[@]+"${args[@]}"} for bash 3.x compatibility (empty array + set -u)
-if nextflow lint ${args[@]+"${args[@]}"} "${files[@]}"; then
-    echo "✅ Nextflow lint passed"
+if $fail_on_warnings; then
+    if ! command -v jq &> /dev/null; then
+        echo "Error: jq is not installed or not in PATH (-fail-on-warnings requires jq)"
+        echo "Please install jq from https://jqlang.org/"
+        exit 1
+    fi
+
+    lint_exit=0
+    output=$(nextflow lint ${args[@]+"${args[@]}"} -output json "${files[@]}") || lint_exit=$?
+    echo "$output"
+
+    if [[ $lint_exit -ne 0 ]]; then
+        echo "❌ Nextflow lint failed"
+        exit 1
+    fi
+
+    # 'warnings' key was added in nextflow 26.01.1-edge; if absent (older nextflow), do nothing.
+    # `null | length` is 0 in jq, so a missing key safely evaluates to false.
+    if jq -e '.warnings | length > 0' <<< "$output" > /dev/null; then
+        echo "❌ Nextflow lint warnings found (-fail-on-warnings is set)"
+        exit 1
+    fi
 else
-    echo "❌ Nextflow lint failed"
-    exit 1
+    output_args=()
+    [[ -n "$output_format" ]] && output_args=(-output "$output_format")
+    if ! nextflow lint ${args[@]+"${args[@]}"} ${output_args[@]+"${output_args[@]}"} "${files[@]}"; then
+        echo "❌ Nextflow lint failed"
+        exit 1
+    fi
 fi
+echo "✅ Nextflow lint passed"
